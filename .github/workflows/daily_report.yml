@@ -1,12 +1,12 @@
-name: Economic Calendar Bot (USD/EUR)
+name: Economic Calendar Bot
 
 on:
   schedule:
-    # 1. 아침 일정 알림 (KST 06:30)
+    # 한국 시간 06:30 (UTC 21:30) - 아침 일정 알림
     - cron: '30 21 * * *'
-    # 2. 미국 주요지표 발표 후 실적 알림 (KST 22:30)
+    # 한국 시간 22:30 (UTC 13:30) - 주요 지표 실적 알림
     - cron: '30 13 * * *'
-    workflow_dispatch:
+  workflow_dispatch: # 수동 실행 버튼
 
 jobs:
   run_bot:
@@ -21,10 +21,12 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install python-telegram-bot requests beautifulsoup4
+        run: |
+          pip install python-telegram-bot requests beautifulsoup4 pandas
 
       - name: Execute Script
         env:
+          # 통일된 변수명 사용
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
