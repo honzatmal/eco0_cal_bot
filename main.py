@@ -5,80 +5,84 @@ import telegram
 import asyncio
 from datetime import datetime, timedelta
 
-# GitHub Secrets와 명칭 통일
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 async def get_economic_calendar():
-    """USD와 EUR 지표만 필터링하여 가져옵니다."""
     url = "https://www.investing.com/economic-calendar/"
+    # 헤더를 더 실제 브라우저와 비슷하게 강화
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'X-Requested-With': 'XMLHttpRequest'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.google.com/'
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            return [f"❌ 사이트 접속 실패 (코드: {response.status_code})"]
+
         soup = BeautifulSoup(response.text, 'html.parser')
-        rows = soup.select('tr.event_drp')
         
+        # 더 유연한 행 선택자 사용
+        rows = soup.select('tr[id^="eventRowId_"]') 
+        if not rows:
+            # 다른 패턴 시도
+            rows = soup.find_all('tr', {'class': 'event_drp'})
+
         events = []
         for row in rows:
-            # 통화(Currency) 태그 추출
-            curr_tag = row.select_one('td.left.flagCur')
-            curr = curr_tag.get_text(strip=True) if curr_tag else ""
+            # 통화 필터링
+            curr_td = row.select_one('td.flagCur')
+            curr = curr_td.get_text(strip=True) if curr_td else ""
             
-            # USD와 EUR만 필터링 (대문자 기준)
             if curr not in ['USD', 'EUR']:
                 continue
             
-            # 세부 정보 추출
-            time = row.select_one('td.first.left.time').get_text(strip=True)
-            name = row.select_one('td.left.event').get_text(strip=True)
-            forecast = row.select_one('td.fore').get_text(strip=True)
+            time = row.select_one('td.time').get_text(strip=True) if row.select_one('td.time') else "알수없음"
+            event_td = row.select_one('td.event')
+            name = event_td.get_text(strip=True) if event_td else "지표명 없음"
             
-            # 이모지 설정
+            # 중요도(별) 확인 (필요시 추가 필터링 가능)
+            # star_count = len(row.select('td.sentiment i.grayFullBullishIcon'))
+            
             flag = "🇺🇸" if curr == "USD" else "🇪🇺"
-            
-            event_str = (
-                f"{flag} **{curr}** | {time}\n"
-                f"📢 {name}\n"
-                f"📊 예상: `{forecast if forecast else '-'}`\n"
-                f"──────────────────"
-            )
-            events.append(event_str)
+            events.append(f"{flag} **{curr}** | {time}\n📢 {name}\n" + "─"*15)
         
         return events
 
     except Exception as e:
-        print(f"데이터 수집 에러: {e}")
-        return []
+        return [f"❌ 에러 발생: {str(e)}"]
 
 async def main():
     if not TOKEN or not CHAT_ID:
-        print("설정 오류: Secrets 변수를 확인하세요.")
+        print("설정 오류: Secrets 확인 필요")
         return
 
-    data = await get_economic_calendar()
     bot = telegram.Bot(token=TOKEN)
+    data = await get_economic_calendar()
     
-    # 한국 시간 기준 날짜
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime('%Y-%m-%d (%a)')
     
+    # 메시지 전송 로직
     if data:
-        header = f"📅 **오늘의 주요 지표 ({today_str})**\n"
-        header += "대상: USD, EUR 전용\n\n"
-        full_message = header + "\n".join(data)
-        
-        try:
-            await bot.send_message(chat_id=CHAT_ID, text=full_message, parse_mode='Markdown')
-            print("전송 성공")
-        except Exception as e:
-            await bot.send_message(chat_id=CHAT_ID, text=full_message)
-            print(f"일반 텍스트로 전송됨: {e}")
+        if "❌" in data[0]: # 에러 발생 시
+            msg = data[0]
+        else:
+            msg = f"📅 **오늘의 주요 지표 ({today_str})**\n\n" + "\n".join(data)
     else:
-        print("표시할 지표가 없습니다.")
+        msg = f"📭 **{today_str}**\n오늘은 예정된 주요 USD/EUR 지표가 없습니다."
+
+    try:
+        # 메시지 분할 전송 (너무 길 경우 에러 방지)
+        if len(msg) > 4000:
+            await bot.send_message(chat_id=CHAT_ID, text=msg[:4000], parse_mode='Markdown')
+        else:
+            await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode='Markdown')
+        print("전송 시도 완료")
+    except Exception as e:
+        print(f"텔레그램 전송 실패: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
