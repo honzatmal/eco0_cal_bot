@@ -5,66 +5,80 @@ import telegram
 import asyncio
 from datetime import datetime
 
-# 변수 설정
+# 1. 환경 변수 설정 (이름 통일)
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-async def get_economic_data():
-    """모든 USD, EUR 지표와 실적 값을 가져오는 함수"""
+async def get_economic_calendar():
+    """인베스팅닷컴에서 USD, EUR 지표 데이터를 추출합니다."""
     url = "https://www.investing.com/economic-calendar/"
+    
+    # 보안 차단을 방지하기 위한 헤더 설정
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'X-Requested-With': 'XMLHttpRequest'
     }
     
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    events = []
-    rows = soup.select('tr.event_drp') # 경제 지표 행 선택
-    
-    for row in rows:
-        curr = row.select_one('td.left.flagCur').text.strip()
-        if curr not in ['USD', 'EUR']:
-            continue
-            
-        time = row.select_one('td.first.left.time').text.strip()
-        name = row.select_one('td.left.event').text.strip()
-        actual = row.select_one('td.bold').text.strip() # 실적 값
-        forecast = row.select_one('td.fore').text.strip() # 예상 값
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        events.append({
-            'time': time,
-            'curr': curr,
-            'name': name,
-            'actual': actual if actual else "발표 전",
-            'forecast': forecast if forecast else "-"
-        })
-    return events
+        # 경제 지표 테이블 행 가져오기
+        table = soup.find('table', id='economicCalendarData')
+        rows = table.find_all('tr', class_='event_drp') if table else []
+        
+        events = []
+        for row in rows:
+            # 통화(Currency) 추출
+            curr_tag = row.find('td', class_='left flagCur')
+            curr = curr_tag.get_text(strip=True) if curr_tag else ""
+            
+            if curr not in ['USD', 'EUR']:
+                continue
+            
+            # 시간, 지표명, 실제치, 예측치 추출
+            time = row.find('td', class_='first left time').get_text(strip=True)
+            name = row.find('td', class_='left event').get_text(strip=True)
+            actual = row.find('td', class_='bold').get_text(strip=True)
+            forecast = row.find('td', class_='fore').get_text(strip=True)
+            
+            events.append({
+                'time': time,
+                'curr': curr,
+                'name': name,
+                'actual': actual if actual else "발표 전",
+                'forecast': forecast if forecast else "-"
+            })
+        return events
+    except Exception as e:
+        print(f"데이터 수집 중 오류 발생: {e}")
+        return []
 
-async def main():
+async def send_telegram_msg():
     if not TOKEN or not CHAT_ID:
-        print("설정 오류: 토큰 또는 아이디를 확인하세요.")
+        print("토큰 또는 채팅 ID가 설정되지 않았습니다.")
+        return
+
+    data = await get_economic_calendar()
+    if not data:
+        print("전송할 데이터가 없습니다.")
         return
 
     bot = telegram.Bot(token=TOKEN)
-    data = await get_economic_data()
     
-    if not data:
-        return
-
-    # 메시지 구성
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
-    msg = f"📊 [USD/EUR 경제 지표 리포트]\n기준: {current_time}\n"
-    msg += "="*25 + "\n"
+    # 메시지 상단 구성
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    msg = f"📊 [경제 지표 리포트 - {now}]\n"
+    msg += "대상: USD, EUR 모든 지표\n"
+    msg += "━" * 15 + "\n"
     
     for item in data:
         msg += f"🕒 {item['time']} | {item['curr']}\n"
         msg += f"📢 {item['name']}\n"
         msg += f"✅ 실적: {item['actual']} (예상: {item['forecast']})\n"
-        msg += "-"*20 + "\n"
+        msg += "─" * 15 + "\n"
 
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(send_telegram_msg())
