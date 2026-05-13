@@ -5,54 +5,66 @@ import telegram
 import asyncio
 from datetime import datetime
 
-# 텔레그램 변수 설정 (이름 통일: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+# 변수 설정
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-async def fetch_economic_data():
-    """인베스팅닷컴 등에서 USD, EUR 지표를 모두 긁어오는 함수"""
+async def get_economic_data():
+    """모든 USD, EUR 지표와 실적 값을 가져오는 함수"""
     url = "https://www.investing.com/economic-calendar/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'X-Requested-With': 'XMLHttpRequest'
+    }
     
-    # 실제 환경에서는 requests로 페이지를 가져와 BeautifulSoup으로 파싱합니다.
-    # 여기서는 USD, EUR 모든 지표를 처리하는 로직을 담고 있습니다.
+    response = requests.get(url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
     
-    target_currencies = ['USD', 'EUR']
-    events = [] # 긁어온 지표들이 담길 리스트
+    events = []
+    rows = soup.select('tr.event_drp') # 경제 지표 행 선택
     
-    # (예시 데이터 구조: 실제 파싱 시 이 형식으로 리스트를 만듭니다)
-    sample_data = [
-        {"time": "16:00", "curr": "EUR", "name": "독일 소비자물가지수(CPI)", "actual": "2.4%", "forecast": "2.3%"},
-        {"time": "21:30", "curr": "USD", "name": "근원 소비자물가지수", "actual": "0.3%", "forecast": "0.3%"},
-        {"time": "21:30", "curr": "USD", "name": "실업수당청구건수", "actual": "212K", "forecast": "215K"}
-    ]
-    
-    return [e for e in sample_data if e['curr'] in target_currencies]
+    for row in rows:
+        curr = row.select_one('td.left.flagCur').text.strip()
+        if curr not in ['USD', 'EUR']:
+            continue
+            
+        time = row.select_one('td.first.left.time').text.strip()
+        name = row.select_one('td.left.event').text.strip()
+        actual = row.select_one('td.bold').text.strip() # 실적 값
+        forecast = row.select_one('td.fore').text.strip() # 예상 값
+        
+        events.append({
+            'time': time,
+            'curr': curr,
+            'name': name,
+            'actual': actual if actual else "발표 전",
+            'forecast': forecast if forecast else "-"
+        })
+    return events
 
-async def send_message():
+async def main():
     if not TOKEN or not CHAT_ID:
+        print("설정 오류: 토큰 또는 아이디를 확인하세요.")
         return
 
     bot = telegram.Bot(token=TOKEN)
-    data = await fetch_economic_data()
+    data = await get_economic_data()
     
-    # 현재 시간에 따라 메시지 헤더 변경
-    current_hour = datetime.now().hour
-    if 5 <= current_hour <= 8:
-        header = "📅 [오늘의 모든 USD/EUR 일정]\n"
-    else:
-        header = "📢 [USD/EUR 지표 실적 업데이트]\n"
+    if not data:
+        return
 
-    msg = header + "="*25 + "\n"
+    # 메시지 구성
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
+    msg = f"📊 [USD/EUR 경제 지표 리포트]\n기준: {current_time}\n"
+    msg += "="*25 + "\n"
     
     for item in data:
-        msg += f"[{item['time']}] {item['curr']} - {item['name']}\n"
-        # 결과값(Actual)이 있는 경우에만 실적 정보 추가
-        if item['actual']:
-            msg += f"👉 실제: {item['actual']} (예상: {item['forecast']})\n"
+        msg += f"🕒 {item['time']} | {item['curr']}\n"
+        msg += f"📢 {item['name']}\n"
+        msg += f"✅ 실적: {item['actual']} (예상: {item['forecast']})\n"
         msg += "-"*20 + "\n"
 
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 if __name__ == "__main__":
-    asyncio.run(send_message())
+    asyncio.run(main())
