@@ -5,12 +5,12 @@ import telegram
 import asyncio
 from datetime import datetime, timedelta
 
-# 환경 변수 (Secrets와 명칭 통일)
+# GitHub Secrets와 명칭 통일
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 async def get_economic_calendar():
-    """인베스팅닷컴에서 USD, EUR 지표 데이터를 가져옵니다."""
+    """USD와 EUR 지표만 필터링하여 가져옵니다."""
     url = "https://www.investing.com/economic-calendar/"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -24,39 +24,61 @@ async def get_economic_calendar():
         
         events = []
         for row in rows:
+            # 통화(Currency) 태그 추출
             curr_tag = row.select_one('td.left.flagCur')
             curr = curr_tag.get_text(strip=True) if curr_tag else ""
             
-            if curr in ['USD', 'EUR']:
-                time = row.select_one('td.first.left.time').get_text(strip=True)
-                name = row.select_one('td.left.event').get_text(strip=True)
-                forecast = row.select_one('td.fore').get_text(strip=True)
-                
-                events.append(f"🕒 {time} | {curr}\n📢 {name}\n📊 예상: {forecast if forecast else '-'}\n" + "─"*15)
+            # USD와 EUR만 필터링 (대문자 기준)
+            if curr not in ['USD', 'EUR']:
+                continue
+            
+            # 세부 정보 추출
+            time = row.select_one('td.first.left.time').get_text(strip=True)
+            name = row.select_one('td.left.event').get_text(strip=True)
+            forecast = row.select_one('td.fore').get_text(strip=True)
+            
+            # 이모지 설정
+            flag = "🇺🇸" if curr == "USD" else "🇪🇺"
+            
+            event_str = (
+                f"{flag} **{curr}** | {time}\n"
+                f"📢 {name}\n"
+                f"📊 예상: `{forecast if forecast else '-'}`\n"
+                f"──────────────────"
+            )
+            events.append(event_str)
         
-        return "\n".join(events) if events else "📭 오늘 예정된 주요 USD/EUR 지표가 없습니다."
+        return events
 
     except Exception as e:
-        return f"❌ 데이터 수집 중 에러 발생: {str(e)}"
+        print(f"데이터 수집 에러: {e}")
+        return []
 
-async def send_daily_msg():
-    """매일 아침 07:05 지표 일정 전송"""
-    if not TOKEN or not CHAT_ID: return
+async def main():
+    if not TOKEN or not CHAT_ID:
+        print("설정 오류: Secrets 변수를 확인하세요.")
+        return
 
     data = await get_economic_calendar()
     bot = telegram.Bot(token=TOKEN)
     
-    now_kst = (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d')
-    header = f"📅 [오늘의 지표 일정 - {now_kst}]\n"
-    header += "대상: USD, EUR 모든 지표\n"
-    header += "━" * 15 + "\n"
-
-    try:
-        await bot.send_message(chat_id=CHAT_ID, text=header + data)
-        print("데일리 지표 전송 완료")
-    except Exception as e:
-        print(f"전송 실패: {e}")
+    # 한국 시간 기준 날짜
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    today_str = kst_now.strftime('%Y-%m-%d (%a)')
+    
+    if data:
+        header = f"📅 **오늘의 주요 지표 ({today_str})**\n"
+        header += "대상: USD, EUR 전용\n\n"
+        full_message = header + "\n".join(data)
+        
+        try:
+            await bot.send_message(chat_id=CHAT_ID, text=full_message, parse_mode='Markdown')
+            print("전송 성공")
+        except Exception as e:
+            await bot.send_message(chat_id=CHAT_ID, text=full_message)
+            print(f"일반 텍스트로 전송됨: {e}")
+    else:
+        print("표시할 지표가 없습니다.")
 
 if __name__ == "__main__":
-    # 실적 확인 모드 제거, 데일리 알림만 수행
-    asyncio.run(send_daily_msg())
+    asyncio.run(main())
