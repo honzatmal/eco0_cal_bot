@@ -1,29 +1,30 @@
-name: Daily Economic Calendar
+name: Daily Economic Calendar Bot
 
 on:
   schedule:
-    # 한국 시간(KST) 오전 6:30 -> UTC 오후 9:30
+    # 한국 시간(KST) 06:30 -> UTC 21:30 (전날)
     - cron: '30 21 * * *'
-  workflow_dispatch: # 수동 실행 버튼 활성화
+  workflow_dispatch: # 필요할 때 수동으로 실행 가능
 
 jobs:
-  build:
+  run_bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: ambassadors/setup-python@v4
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 python-telegram-bot
+          pip install python-telegram-bot requests beautifulsoup4
 
-      - name: Run Script
+      - name: Execute Script
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          # 통일된 변수명 사용
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
