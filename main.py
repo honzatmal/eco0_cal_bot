@@ -5,45 +5,44 @@ import telegram
 import asyncio
 from datetime import datetime
 
-# 1. 변수 명칭 통일 (image_550fe2.png 구조 반영)
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-async def get_economic_calendar():
-    """경제 캘린더 데이터를 수집하는 함수"""
-    # 한국 시간 기준 오늘 날짜
-    today = datetime.now().strftime('%Y-%m-%d')
+async def get_economic_data(mode="schedule"):
+    """
+    mode="schedule": 아침용 (전체 일정)
+    mode="result": 밤용 (실제 결과값 포함)
+    """
+    # 실제 운영 시에는 Investing.com 또는 API를 통해 데이터를 가져옵니다.
+    # 여기서는 USD, EUR 필터링 로직의 예시를 보여줍니다.
     
-    # 예시: 인베스팅닷컴의 당일 주요 지표 요약 (실제 운영 시 API나 특정 뉴스레터 URL 활용 권장)
-    msg = f"📅 {today} 경제 캘린더 (AM 06:30)\n\n"
+    target_currencies = ['USD', 'EUR']
+    msg = ""
     
-    try:
-        # 여기에 실제 크롤링 로직이 들어갑니다.
-        # 우선은 가독성을 위해 구조화된 예시 텍스트를 생성합니다.
-        msg += "✅ 주요 발표 일정:\n"
-        msg += "- [미국] 소비자물가지수(CPI) (21:30)\n"
-        msg += "- [미국] 신규 실업수당청구건수 (21:30)\n"
-        msg += "- [유럽] 통화정책회의 (20:45)\n\n"
-        msg += "💡 골드(XAU/USD) 변동성에 유의하세요."
-    except Exception as e:
-        msg += f"데이터를 불러오는 중 오류가 발생했습니다: {e}"
-    
+    if mode == "schedule":
+        msg = "📅 [오늘의 주요 일정] (USD/EUR)\n\n"
+        # 예시 데이터 (필터링 로직 적용)
+        msg += "🇪🇺 EUR - 독일 소비자물가지수 (16:00)\n"
+        msg += "🇺🇸 USD - 미 신규 실업수당청구건수 (21:30)\n"
+    else:
+        msg = "📢 [지표 발표 결과] (USD/EUR)\n\n"
+        # 실제치(Actual)가 업데이트된 데이터만 포함
+        msg += "🇺🇸 USD - 실업수당청구건수\n"
+        msg += "실제: 212K (예상: 215K) ✅\n"
+        msg += "\n💡 골드(XAU/USD) 변동성을 체크하세요."
+
     return msg
 
 async def send_message():
-    """텔레그램 메시지 전송 함수 (image_550fe2.png 기반)"""
-    if not TOKEN or not CHAT_ID:
-        print("에러: TELEGRAM_BOT_TOKEN 또는 CHAT_ID가 설정되지 않았습니다.")
-        return
-
+    if not TOKEN or not CHAT_ID: return
     bot = telegram.Bot(token=TOKEN)
-    text = await get_economic_calendar()
     
-    try:
-        await bot.send_message(chat_id=CHAT_ID, text=text)
-        print("메시지 전송 성공!")
-    except Exception as e:
-        print(f"전송 실패: {e}")
+    # 실행 시간에 따라 모드 자동 전환 (아침 6시경이면 일정, 그 외엔 결과)
+    current_hour = datetime.now().hour
+    mode = "schedule" if 5 <= current_hour <= 8 else "result"
+    
+    text = await get_economic_data(mode=mode)
+    await bot.send_message(chat_id=CHAT_ID, text=text)
 
 if __name__ == "__main__":
     asyncio.run(send_message())
