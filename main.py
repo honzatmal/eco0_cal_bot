@@ -19,7 +19,7 @@ TRANSLATION_MAP = {
     "Import Prices MoM": "수입물가지수 (전월비)",
     "ECB President Lagarde Speech": "라가르드 ECB 총재 연설",
     "Fed Williams Speech": "윌리엄스 연준 위원 연설",
-    "Retail Sales Ex Gas/Autos MoM": "소매판매 (가스/자동차 제외)"
+    "Retail Sales Ex Gas/Autos MoM": "소매판매 (가스/차 제외)"
 }
 
 async def get_data():
@@ -30,9 +30,7 @@ async def get_data():
     headers = {"User-Agent": "Mozilla/5.0", "Origin": "https://www.tradingview.com"}
     try:
         res = requests.get(url, params=params, headers=headers)
-        data = res.json().get('result', [])
-        data.sort(key=lambda x: x['date'])
-        return data
+        return res.json().get('result', [])
     except: return []
 
 async def main():
@@ -40,33 +38,35 @@ async def main():
     bot = telegram.Bot(token=TOKEN)
     
     kst_now = datetime.utcnow() + timedelta(hours=9)
-    today_title = kst_now.strftime('📅 %m월 %d일 (%a) 경제 지표')
+    today_title = kst_now.strftime('📅 %m월 %d일 (%a) 지표 브리핑')
     
     events = await get_data()
     if not events: return
 
-    # 헤더 구성
-    message = f"✨ **{today_title}**\n"
-    message += "───\n\n"
+    # 데이터 분류 (EU / US)
+    eu_events = [e for e in events if e['country'] == 'EU']
+    us_events = [e for e in events if e['country'] == 'US']
     
-    for e in events:
-        # 시간 및 국가
-        t = (datetime.fromisoformat(e['date'].replace('Z', '+00:00')) + timedelta(hours=9)).strftime('%H:%M')
-        flag = "🇺🇸" if e['country'] == "US" else "🇪🇺"
-        
-        # 제목 및 별점 (중요성)
-        title = TRANSLATION_MAP.get(e['title'], e['title'])
-        # 0:★☆☆, 1:★★☆, 2:★★★
-        stars = "★" * (e['importance'] + 1) + "☆" * (2 - e['importance'])
-        
-        # 수치 레이아웃 개선
-        forecast = str(e.get('forecast', '-'))
-        previous = str(e.get('previous', '-'))
-        
-        # 한 줄로 요약된 간결하고 세련된 카드 스타일
-        message += f"`{t}` {flag} **{title}**\n"
-        message += f"└ {stars}  `예상 {forecast}`  `이전 {previous}`\n\n"
+    def format_section(title, event_list):
+        if not event_list: return ""
+        section = f"📍 **{title}**\n"
+        for e in sorted(event_list, key=lambda x: x['date']):
+            t = (datetime.fromisoformat(e['date'].replace('Z', '+00:00')) + timedelta(hours=9)).strftime('%H:%M')
+            label = TRANSLATION_MAP.get(e['title'], e['title'])
+            stars = "★" * (e['importance'] + 1)
+            
+            # 수치 정보 요약 (한 줄로 압축)
+            f, p = e.get('forecast', '-'), e.get('previous', '-')
+            val = f" | `{f}` (`{p}`)" if f != '-' or p != '-' else ""
+            
+            section += f"`{t}` {stars} {label}{val}\n"
+        return section + "\n"
 
+    # 메시지 결합
+    message = f"✨ **{today_title}**\n\n"
+    message += format_section("EUROZONE (EU)", eu_events)
+    message += format_section("UNITED STATES (US)", us_events)
+    
     await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
 
 if __name__ == "__main__":
