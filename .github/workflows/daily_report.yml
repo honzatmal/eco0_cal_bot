@@ -2,9 +2,9 @@ name: Economic Calendar Bot
 
 on:
   schedule:
-    # 매일 한국 시간 07:05 (UTC 22:05) 에만 실행
+    # 매일 한국 시간 07:05 (UTC 22:05)
     - cron: '5 22 * * *'
-  workflow_dispatch: # 수동 테스트용 버튼
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -21,11 +21,10 @@ jobs:
         with:
           python-version: '3.10'
 
-    - name: Install Dependencies
+      - name: Install Dependencies
         run: |
           pip install python-telegram-bot requests beautifulsoup4 yfinance
 
-      # Secrets 설정 확인 (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
       - name: Execute Script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
