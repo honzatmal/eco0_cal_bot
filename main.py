@@ -70,7 +70,11 @@ async def main():
     message += format_section("EUROZONE", "🇪🇺", eu_events)
     message += format_section("UNITED STATES", "🇺🇸", us_events)
     
-    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-
+    await bot.send_message(
+        chat_id=CHAT_ID, 
+        text=message, 
+        parse_mode='Markdown',
+        disable_notification=False  # 알림을 끄지 않음 (강제 알림)
+    )
 if __name__ == "__main__":
     asyncio.run(main())
