@@ -21,11 +21,10 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Fonts and Dependencies
+      - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-nanum  # 한글 폰트 설치
-          pip install python-telegram-bot requests pandas matplotlib
+          # apt-get update와 폰트 설치를 모두 제거합니다.
+          pip install python-telegram-bot requests
 
       - name: Execute Script
         env:
