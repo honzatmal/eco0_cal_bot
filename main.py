@@ -4,7 +4,6 @@ import telegram
 import asyncio
 from datetime import datetime, timedelta
 
-# 1. 설정값 로드
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
@@ -17,24 +16,33 @@ TRANSLATION_MAP = {
 }
 
 async def main():
-    if not TOKEN or not CHAT_ID: return
+    if not TOKEN or not CHAT_ID:
+        print("❌ 설정 오류: TOKEN이나 CHAT_ID가 없습니다.")
+        return
 
-    # 2. 데이터 가져오기 (타임아웃 5초로 단축)
+    # 1. 날짜 설정 (KST 9시간 후)
     now = datetime.utcnow() + timedelta(hours=9)
     date_str = now.strftime('%Y-%m-%d')
+    print(f"🕒 조회 날짜: {date_str}")
+
+    # 2. API 호출
     url = f"https://economic-calendar.tradingview.com/events?from={date_str}T00:00:00.000Z&to={date_str}T23:59:59.999Z&countries=US,EU"
     
     try:
-        res = requests.get(url, timeout=5)
+        res = requests.get(url, timeout=7)
         events = res.json().get('result', [])
-    except: return
+        print(f"📊 검색된 지표 개수: {len(events)}개")
+    except Exception as e:
+        print(f"❌ API 요청 실패: {e}")
+        return
 
-    if not events: return
+    if not events:
+        print("⚠️ 오늘 예정된 지표가 없어 메시지를 보내지 않았습니다.")
+        return
 
-    # 3. 메시지 빌드 (속도 최적화)
+    # 3. 메시지 조립
     output = [f"✨ **{now.strftime('%m월 %d일 (%a)')} 지표 브리핑**\n"]
     
-    # 국가별 분류
     sections = {"EU": [], "US": []}
     for e in events:
         c = e.get('country')
@@ -43,7 +51,6 @@ async def main():
     for code, name, flag in [("EU", "EUROZONE", "🇪🇺"), ("US", "UNITED STATES", "🇺🇸")]:
         if not sections[code]: continue
         output.append(f"\n{flag} **{name}**\n━━━━━━━━━━━━━━━━━━")
-        
         for e in sorted(sections[code], key=lambda x: x['date']):
             t = (datetime.fromisoformat(e['date'][:19]) + timedelta(hours=9)).strftime('%H:%M')
             label = TRANSLATION_MAP.get(e['title'], e['title'])
@@ -52,15 +59,18 @@ async def main():
             val = f" | `{f}` (`{p}`)" if f or p else ""
             output.append(f"`{t}` {stars} {label}{val}")
 
-    # 4. 메시지 전송 (알림 설정 핵심)
-    bot = telegram.Bot(token=TOKEN)
-    await bot.send_message(
-        chat_id=CHAT_ID, 
-        text="\n".join(output), 
-        parse_mode='Markdown',
-        disable_notification=False, # ⭐ False로 설정해야 소리/진동 알림이 옵니다.
-        protect_content=False
-    )
+    # 4. 메시지 전송 (알림 강제 활성화)
+    try:
+        bot = telegram.Bot(token=TOKEN)
+        await bot.send_message(
+            chat_id=CHAT_ID, 
+            text="\n".join(output), 
+            parse_mode='Markdown',
+            disable_notification=False  # 소리/진동 알림 켜기
+        )
+        print("✅ 메시지 전송 완료!")
+    except Exception as e:
+        print(f"❌ 전송 실패: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
