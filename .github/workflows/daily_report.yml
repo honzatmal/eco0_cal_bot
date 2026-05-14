@@ -21,9 +21,9 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+    - name: Install Dependencies
         run: |
-          pip install python-telegram-bot requests beautifulsoup4
+          pip install python-telegram-bot requests beautifulsoup4 yfinance
 
       # Secrets 설정 확인 (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
       - name: Execute Script
