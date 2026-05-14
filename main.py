@@ -1,70 +1,92 @@
 import os
-import yfinance as yf
+import requests
 import telegram
 import asyncio
 from datetime import datetime, timedelta
-import pandas as pd
 
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-async def get_yf_calendar():
-    """야후 파이낸스 라이브러리를 직접 사용하여 지표를 가져옵니다."""
-    try:
-        # 주요 경제 지표 대용으로 사용되는 주요 통화/채권 심볼들을 체크하거나 
-        # yfinance의 공식 캘린더 모듈을 호출합니다.
-        import yfinance as yf
-        
-        # 캘린더 데이터를 가져오기 위해 'SPY'(시장전체)의 이벤트를 참조합니다.
-        # 실제 경제 지표 일정을 제공하는 전용 함수를 사용합니다.
-        cal = yf.EconomicCalendar()
-        df = cal.get_calendar() # 기본적으로 최신 일정을 가져옴
+async def get_economic_calendar():
+    """인베스팅닷컴의 모바일 앱용 엔드포인트를 직접 공략합니다. (웹보다 차단이 덜함)"""
+    url = "https://ca-api.investing.com/api/v1/economic-calendar/events"
+    
+    # 오늘 날짜 (KST -> UTC 변환)
+    now_kst = datetime.utcnow() + timedelta(hours=9)
+    date_str = now_kst.strftime('%Y-%m-%d')
+    
+    # 앱 접속인 것처럼 위장하는 헤더
+    headers = {
+        "User-Agent": "InvestingApp/10.0.0 (Android 11; Scale/2.0)",
+        "Content-Type": "application/json",
+        "X-Meta-App-Id": "com.investing.app",
+        "Referer": "https://www.investing.com/"
+    }
+    
+    # 5=미국, 72=유로존 / 중요도 2,3만 필터링 (가독성 위해)
+    params = {
+        "from": date_str,
+        "to": date_str,
+        "countries": "5,72",
+        "importance": "2,3",
+        "time_zone": "8" # 한국 시간대
+    }
 
-        if df is None or df.empty:
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=15)
+        
+        # 만약 이것도 403이 뜨면, 아예 다른 공용 소스를 시도합니다.
+        if response.status_code != 200:
+            return [f"⚠️ 외부 소스 접근 제한 (코드: {response.status_code})"]
+
+        data = response.json()
+        events = data.get('data', [])
+        
+        if not events:
             return []
 
-        # 한국 시간 기준 오늘 날짜
-        kst_today = (datetime.utcnow() + timedelta(hours=9)).date()
-        
-        # 날짜 필터링 및 US/EU 관련 지표만 선별
-        df['date'] = pd.to_datetime(df['datetime']).dt.date
-        today_events = df[df['date'] == kst_today]
+        formatted_events = []
+        for event in events:
+            time = event.get('time', '미정')
+            name = event.get('name', '지표명 없음')
+            currency = event.get('currency', '')
+            forecast = event.get('forecast', '-')
+            importance = int(event.get('importance', 0))
+            
+            flag = "🇺🇸" if currency == "USD" else "🇪🇺"
+            stars = "⭐" * importance
+            
+            formatted_events.append(
+                f"{flag} **{currency}** | {time} | {stars}\n"
+                f"📢 {name}\n"
+                f"📊 예상: `{forecast}`\n"
+                f"──────────────────"
+            )
+        return formatted_events
 
-        events = []
-        for _, row in today_events.iterrows():
-            country = str(row.get('country', '')).upper()
-            if 'UNITED STATES' in country or 'EURO' in country or 'US' in country:
-                time = pd.to_datetime(row['datetime']).strftime('%H:%M')
-                name = row.get('event', 'Economic Event')
-                impact = row.get('impact', 'Low')
-                
-                flag = "🇺🇸" if 'UNITED STATES' in country or 'US' in country else "🇪🇺"
-                stars = "⭐" * (3 if impact == 'High' else 2 if impact == 'Medium' else 1)
-                
-                events.append(f"{flag} **{country[:2]}** | {time} | {stars}\n📢 {name}\n" + "─"*15)
-        
-        return events
     except Exception as e:
-        print(f"YF 에러: {e}")
-        return []
+        print(f"오류: {e}")
+        return [f"❌ 데이터 수집 오류 발생"]
 
 async def main():
     if not TOKEN or not CHAT_ID: return
     bot = telegram.Bot(token=TOKEN)
     
-    # KST 날짜
-    kst_now = datetime.utcnow() + timedelta(hours=9)
-    today_str = kst_now.strftime('%Y-%m-%d (%a)')
+    now_kst = datetime.utcnow() + timedelta(hours=9)
+    today_str = now_kst.strftime('%Y-%m-%d (%a)')
 
-    # 데이터 가져오기
-    data = await get_yf_calendar()
+    data = await get_economic_calendar()
     
     if data:
-        header = f"📅 **경제 지표 리포트 ({today_str})**\n\n"
-        await bot.send_message(chat_id=CHAT_ID, text=header + "\n".join(data), parse_mode='Markdown')
+        # 에러 메시지인 경우 일반 텍스트 전송
+        if "⚠️" in data[0] or "❌" in data[0]:
+            await bot.send_message(chat_id=CHAT_ID, text=data[0])
+        else:
+            header = f"📅 **경제 지표 통합 리포트 ({today_str})**\n\n"
+            await bot.send_message(chat_id=CHAT_ID, text=header + "\n".join(data), parse_mode='Markdown')
     else:
-        # 만약 YF도 지표가 없다면, 가장 중요한 '실업수당청구건수' 등을 수동으로라도 체크하는 로직
-        await bot.send_message(chat_id=CHAT_ID, text=f"📭 **{today_str}**\n현재 수집 가능한 지표가 없습니다. 소스를 다시 점검합니다.")
+        # 데이터가 아예 없는 경우 (주말 등)
+        await bot.send_message(chat_id=CHAT_ID, text=f"📭 **{today_str}**\n현재 예정된 주요 US/EU 지표가 없습니다.")
 
 if __name__ == "__main__":
     asyncio.run(main())
