@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-# 세련된 번역 사전
+# 세련된 번역 사전 (가장 많이 쓰이는 지표 위주)
 TRANSLATION_MAP = {
     "Initial Jobless Claims": "신규 실업수당 청구",
     "Continuing Jobless Claims": "연속 실업수당 청구",
@@ -47,25 +47,28 @@ async def main():
     eu_events = [e for e in events if e['country'] == 'EU']
     us_events = [e for e in events if e['country'] == 'US']
     
-    def format_section(title, event_list):
+    def format_section(title, flag, event_list):
         if not event_list: return ""
-        section = f"📍 **{title}**\n"
+        section = f"{flag} **{title}**\n"
+        section += "───\n"
         for e in sorted(event_list, key=lambda x: x['date']):
             t = (datetime.fromisoformat(e['date'].replace('Z', '+00:00')) + timedelta(hours=9)).strftime('%H:%M')
             label = TRANSLATION_MAP.get(e['title'], e['title'])
-            stars = "★" * (e['importance'] + 1)
             
-            # 수치 정보 요약 (한 줄로 압축)
+            # 중요도 별점 (⭐ 적용)
+            stars = "⭐" * (e['importance'] + 1)
+            
+            # 수치 정보 요약
             f, p = e.get('forecast', '-'), e.get('previous', '-')
             val = f" | `{f}` (`{p}`)" if f != '-' or p != '-' else ""
             
             section += f"`{t}` {stars} {label}{val}\n"
         return section + "\n"
 
-    # 메시지 결합
+    # 전체 메시지 조립
     message = f"✨ **{today_title}**\n\n"
-    message += format_section("EUROZONE (EU)", eu_events)
-    message += format_section("UNITED STATES (US)", us_events)
+    message += format_section("EUROZONE", "🇪🇺", eu_events)
+    message += format_section("UNITED STATES", "🇺🇸", us_events)
     
     await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
 
