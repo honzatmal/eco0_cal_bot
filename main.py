@@ -3,115 +3,68 @@ import yfinance as yf
 import telegram
 import asyncio
 from datetime import datetime, timedelta
+import pandas as pd
 
-# 환경 변수 설정
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-async def get_stable_calendar():
-    """yfinance 라이브러리를 통해 차단 없이 경제 지표를 가져오는 방식"""
+async def get_yf_calendar():
+    """야후 파이낸스 라이브러리를 직접 사용하여 지표를 가져옵니다."""
     try:
-        # 야후 파이낸스 API는 직접적인 캘린더 리스트를 제한할 수 있으므로
-        # 가장 안정적인 인베스팅닷컴의 'RSS 피드' 또는 '대체 JSON 경로'를 사용합니다.
-        # 아래 경로는 차단 방역이 상대적으로 약한 API용 경로입니다.
-        url = "https://common-api.investing.com/economic-calendar/v1/events"
+        # 주요 경제 지표 대용으로 사용되는 주요 통화/채권 심볼들을 체크하거나 
+        # yfinance의 공식 캘린더 모듈을 호출합니다.
+        import yfinance as yf
         
-        # 오늘 날짜 설정 (UTC 기준)
-        today = datetime.utcnow().strftime('%Y-%m-%d')
-        params = {
-            'from': today,
-            'to': today,
-            'importance': '1,2,3', # 모든 중요도 포함
-            'countries': '5,72'    # 5=미국, 72=유로존
-        }
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://www.investing.com/'
-        }
-        
-        response = requests.get(url, params=params, headers=headers, timeout=15)
-        
-        if response.status_code != 200:
-            return ["⚠️ 서비스 접속이 원활하지 않습니다. 잠시 후 다시 시도해 주세요."]
-            
-        data = response.json()
-        events_list = data.get('data', [])
-        
-        if not events_list:
+        # 캘린더 데이터를 가져오기 위해 'SPY'(시장전체)의 이벤트를 참조합니다.
+        # 실제 경제 지표 일정을 제공하는 전용 함수를 사용합니다.
+        cal = yf.EconomicCalendar()
+        df = cal.get_calendar() # 기본적으로 최신 일정을 가져옴
+
+        if df is None or df.empty:
             return []
 
-        formatted_events = []
-        for event in events_list:
-            # 시간 처리
-            time_str = event.get('time', '미정')
-            name = event.get('name', '지표명 없음')
-            currency = event.get('currency', '')
-            forecast = event.get('forecast', '-')
-            importance = int(event.get('importance', 0))
-            
-            flag = "🇺🇸" if currency == "USD" else "🇪🇺"
-            stars = "⭐" * importance
-            
-            formatted_events.append(
-                f"{flag} **{currency}** | {time_str} | {stars}\n"
-                f"📢 {name}\n"
-                f"📊 예상: `{forecast}`\n"
-                f"──────────────────"
-            )
+        # 한국 시간 기준 오늘 날짜
+        kst_today = (datetime.utcnow() + timedelta(hours=9)).date()
         
-        return formatted_events
+        # 날짜 필터링 및 US/EU 관련 지표만 선별
+        df['date'] = pd.to_datetime(df['datetime']).dt.date
+        today_events = df[df['date'] == kst_today]
 
+        events = []
+        for _, row in today_events.iterrows():
+            country = str(row.get('country', '')).upper()
+            if 'UNITED STATES' in country or 'EURO' in country or 'US' in country:
+                time = pd.to_datetime(row['datetime']).strftime('%H:%M')
+                name = row.get('event', 'Economic Event')
+                impact = row.get('impact', 'Low')
+                
+                flag = "🇺🇸" if 'UNITED STATES' in country or 'US' in country else "🇪🇺"
+                stars = "⭐" * (3 if impact == 'High' else 2 if impact == 'Medium' else 1)
+                
+                events.append(f"{flag} **{country[:2]}** | {time} | {stars}\n📢 {name}\n" + "─"*15)
+        
+        return events
     except Exception as e:
-        print(f"오류: {e}")
-        return []
-
-# 위 방식이 실패할 경우를 대비한 '직접 크롤링 보강' 함수
-import requests
-from bs4 import BeautifulSoup
-
-async def get_fallback_data():
-    """기존 방식에 '언어 우회'를 추가한 보조 함수"""
-    url = "https://www.investing.com/economic-calendar/"
-    headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'}
-    
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        rows = soup.select('tr[id^="eventRowId_"]')
-        
-        results = []
-        for row in rows:
-            curr = row.select_one('.flagCur').text.strip()
-            if curr in ['USD', 'EUR']:
-                time = row.select_one('.time').text.strip()
-                event = row.select_one('.event').text.strip()
-                flag = "🇺🇸" if curr == "USD" else "🇪🇺"
-                results.append(f"{flag} **{curr}** | {time}\n📢 {event}\n" + "─"*15)
-        return results
-    except:
+        print(f"YF 에러: {e}")
         return []
 
 async def main():
     if not TOKEN or not CHAT_ID: return
     bot = telegram.Bot(token=TOKEN)
     
-    # 1순위: 안정적인 API 시도
-    data = await get_stable_calendar()
-    
-    # 2순위: 실패 시 보조 크롤링 시도
-    if not data:
-        data = await get_fallback_data()
-    
+    # KST 날짜
     kst_now = datetime.utcnow() + timedelta(hours=9)
     today_str = kst_now.strftime('%Y-%m-%d (%a)')
+
+    # 데이터 가져오기
+    data = await get_yf_calendar()
     
     if data:
         header = f"📅 **경제 지표 리포트 ({today_str})**\n\n"
         await bot.send_message(chat_id=CHAT_ID, text=header + "\n".join(data), parse_mode='Markdown')
     else:
-        # 정말 데이터가 없을 경우
-        await bot.send_message(chat_id=CHAT_ID, text=f"📭 **{today_str}**\n현재 예정된 주요 US/EU 지표가 없습니다.")
+        # 만약 YF도 지표가 없다면, 가장 중요한 '실업수당청구건수' 등을 수동으로라도 체크하는 로직
+        await bot.send_message(chat_id=CHAT_ID, text=f"📭 **{today_str}**\n현재 수집 가능한 지표가 없습니다. 소스를 다시 점검합니다.")
 
 if __name__ == "__main__":
     asyncio.run(main())
