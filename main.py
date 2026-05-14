@@ -60,15 +60,14 @@ async def main():
             output.append(f"`{t}` {stars} {label}{val}")
 
     # 4. 메시지 전송 (알림 강제 활성화)
-    try:
-        bot = telegram.Bot(token=TOKEN)
-        await bot.send_message(
-            chat_id=CHAT_ID, 
-            text="\n".join(output), 
-            parse_mode='Markdown',
-            disable_notification=False  # 소리/진동 알림 켜기
-        )
-        print("✅ 메시지 전송 완료!")
+  # 전송 부분 (main.py 하단)
+    bot = telegram.Bot(token=TOKEN)
+    await bot.send_message(
+        chat_id=CHAT_ID, 
+        text="\n".join(output), 
+        parse_mode='Markdown',
+        disable_notification=False  # 이 부분이 False여야 폰에서 소리가 납니다!
+    )
     except Exception as e:
         print(f"❌ 전송 실패: {e}")
 
