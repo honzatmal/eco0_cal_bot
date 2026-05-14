@@ -23,7 +23,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install python-telegram-bot requests beautifulsoup4 yfinance
+          pip install python-telegram-bot requests beautifulsoup4 yfinance pandas
 
       - name: Execute Script
         env:
